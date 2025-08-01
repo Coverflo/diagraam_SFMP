@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Fonction pour vérifier si l'utilisateur est admin
+    function isAdmin() {
+      return request.auth != null && 
+        request.auth.token.email in [
+          'admin@sfmp.fr',
+          'direction@sfmp.fr', 
+          'tech@sfmp.fr',
+          'congres@sfmp.fr'
+        ];
+    }
+    
+    // Alternative avec request.auth.email au cas où token.email ne fonctionne pas
+    function isAdminAlt() {
+      return request.auth != null && 
+        request.auth.email in [
+          'admin@sfmp.fr',
+          'direction@sfmp.fr', 
+          'tech@sfmp.fr',
+          'congres@sfmp.fr'
+        ];
+    }
+    
+    // Règles pour les utilisateurs - accès total pour les admins
+    match /users/{userId} {
+      // L'utilisateur peut lire/écrire ses propres données
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Les administrateurs peuvent lire et écrire tous les utilisateurs
+      allow read, write: if isAdmin() || isAdminAlt();
+    }
+    
+    // Collection users - accès total pour les admins (important pour lister tous les utilisateurs)
+    match /users/{document=**} {
+      allow read, write, list: if isAdmin() || isAdminAlt();
+    }
+    
+    // Événements - CRUD pour les utilisateurs authentifiés sur leurs propres événements
+    match /events/{eventId} {
+      allow read, write: if request.auth != null && 
+        (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+        
+      // Les admins peuvent tout voir
+      allow read, write: if isAdmin() || isAdminAlt();
+    }
+    
+    // Activités - CRUD pour les utilisateurs authentifiés sur leurs propres activités
+    match /activities/{activityId} {
+      allow read, write: if request.auth != null && 
+        exists(/databases/$(database)/documents/events/$(resource.data.eventId)) &&
+        get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.userId == request.auth.uid;
+      allow create: if request.auth != null && 
+        exists(/databases/$(database)/documents/events/$(request.resource.data.eventId)) &&
+        get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.userId == request.auth.uid;
+        
+      // Les admins peuvent tout voir
+      allow read, write: if isAdmin() || isAdminAlt();
+    }
+    
+    // Favoris - CRUD pour les utilisateurs authentifiés sur leurs propres favoris
+    match /favorites/{favoriteId} {
+      allow read, write: if request.auth != null && 
+        (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+        
+      // Les admins peuvent tout voir
+      allow read, write: if isAdmin() || isAdminAlt();
+    }
+    
+    // Collection spéciale pour synchroniser les utilisateurs Firebase Auth
+    match /admin/{document=**} {
+      allow read, write: if isAdmin() || isAdminAlt();
+    }
+    
+    // Règle temporaire très permissive pour debug (À SUPPRIMER EN PRODUCTION)
+    match /{document=**} {
+      allow read: if request.auth != null && 
+        request.auth.token.email == 'tech@sfmp.fr';
+    }
+  }
+}
